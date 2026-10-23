@@ -9,6 +9,7 @@ library(sf)
 library(dplyr)
 library(ggplot2)
 library(readr)
+library(tidyr)
 ```
 
 
@@ -64,10 +65,560 @@ japan_sf %>%
 ```
 
 ```{r}
+#检查栅格坐标系
+st_crs(japan_sf)
+crs(ssp5)
+compareGeom(ssp1, ssp5)
+```
 
+```{r}
+japan_vect <- vect(japan_sf)
+
+japan_vect <- project(
+  japan_vect,
+  crs(ssp1)
+)
+```
+
+```{r}
+#Extract temperature values at city locations
+temp_ssp1 <- terra::extract(ssp1, japan_vect)
+temp_ssp5 <- terra::extract(ssp5, japan_vect)
+head(temp_ssp1)
+head(temp_ssp5)
+```
+
+```{r}
+# Calculate annual mean maximum temperature for SSP1
+ssp1_mean <- rowMeans(temp_ssp1[, -1], na.rm = TRUE)
+
+# Calculate annual mean maximum temperature for SSP5
+ssp5_mean <- rowMeans(temp_ssp5[, -1], na.rm = TRUE)
+```
+
+```{r}
+# Create a data frame for temperature comparison
+results <- data.frame(
+  City = japan_sf$CITY_NAME,
+  SSP1 = ssp1_mean,
+  SSP5 = ssp5_mean
+)
+
+# Calculate temperature differences between scenarios
+results <- results %>%
+  mutate(
+    Difference = SSP5 - SSP1
+  )
+
+# Display the results
+print(results)
+```
+
+```{r}
+# Sort cities by temperature difference
+results_sorted <- results %>%
+  arrange(desc(Difference))
+
+# Create the plot
+p <- ggplot(
+  results_sorted,
+  aes(
+    x = reorder(City, Difference),
+    y = Difference
+  )
+) +
+
+  # Draw horizontal bars
+  geom_col(
+    fill = "steelblue",
+    width = 0.7
+  ) +
+
+  # Add temperature difference labels
+  geom_text(
+    aes(label = sprintf("%.2f°C", Difference)),
+    hjust = -0.15,
+    size = 3.5
+  ) +
+
+  # Flip x and y axes
+  coord_flip() +
+
+  # Set axis limits
+  scale_y_continuous(
+    limits = c(0, 3.5),
+    expand = c(0, 0)
+  ) +
+
+  # Add titles and labels
+  labs(
+    title = "Projected Temperature Difference by City",
+    subtitle = "SSP5-8.5 minus SSP1-2.6 | Japan, 2081–2100",
+    x = NULL,
+    y = "Temperature Difference (°C)",
+    caption = "Source: WorldClim CMIP6 climate projections"
+  ) +
+
+  # Apply a clean theme
+  theme_minimal(base_size = 12) +
+
+  # Customise the appearance
+  theme(
+    plot.title = element_text(
+      face = "bold",
+      size = 15
+    ),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    plot.caption = element_text(
+      colour = "grey50"
+    )
+  )
+
+# Display the plot
+print(p)
+```
+
+```{r}
+# Descriptive statistics for SSP1
+ssp1_stats <- results %>%
+  summarise(
+    Mean = mean(SSP1, na.rm = TRUE),
+    Median = median(SSP1, na.rm = TRUE),
+    SD = sd(SSP1, na.rm = TRUE),
+    Min = min(SSP1, na.rm = TRUE),
+    Max = max(SSP1, na.rm = TRUE),
+    IQR = IQR(SSP1, na.rm = TRUE)
+  )
+
+# Descriptive statistics for SSP5
+ssp5_stats <- results %>%
+  summarise(
+    Mean = mean(SSP5, na.rm = TRUE),
+    Median = median(SSP5, na.rm = TRUE),
+    SD = sd(SSP5, na.rm = TRUE),
+    Min = min(SSP5, na.rm = TRUE),
+    Max = max(SSP5, na.rm = TRUE),
+    IQR = IQR(SSP5, na.rm = TRUE)
+  )
+
+print(ssp1_stats)
+print(ssp5_stats)
+```
+
+```{r}
+# Add scenario labels
+ssp1_stats$Scenario <- "SSP1-2.6"
+ssp5_stats$Scenario <- "SSP5-8.5"
+
+# Combine descriptive statistics
+summary_table <- bind_rows(
+  ssp1_stats,
+  ssp5_stats
+) %>%
+  select(Scenario, everything())
+
+print(summary_table)
+```
+
+```{r}
+# Convert statistics to long format
+stats_long <- summary_table %>%
+  pivot_longer(
+    cols = c(Mean, Median, SD, Min, Max, IQR),
+    names_to = "Statistic",
+    values_to = "Value"
+  )
+
+# Plot descriptive statistics
+ggplot(stats_long,
+       aes(x = Statistic, y = Value, fill = Scenario)) +
+  geom_col(
+    position = position_dodge(width = 0.8),
+    width = 0.7
+  ) +
+  scale_fill_manual(
+    values = c(
+      "SSP1-2.6" = "steelblue",
+      "SSP5-8.5" = "tomato"
+    )
+  ) +
+  labs(
+    title = "Descriptive Statistics of Projected Temperature",
+    subtitle = "Japanese Cities, 2081–2100",
+    x = "Statistic",
+    y = "Temperature (°C)",
+    fill = "Scenario"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(stats_long,
+       aes(x = Scenario, y = Value, fill = Scenario)) +
+  geom_col(width = 0.6) +
+  facet_wrap(
+    ~ Statistic,
+    scales = "free_y",
+    ncol = 3
+  ) +
+  scale_fill_manual(
+    values = c(
+      "SSP1-2.6" = "steelblue",
+      "SSP5-8.5" = "tomato"
+    )
+  ) +
+  labs(
+    title = "Comparison of Descriptive Statistics",
+    subtitle = "SSP1-2.6 vs SSP5-8.5 | Japan, 2081–2100",
+    x = NULL,
+    y = "Value (°C)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    strip.text = element_text(face = "bold"),
+    axis.text.x = element_blank()
+  )
+```
+
+```{r}
+results_long <- results %>%
+  pivot_longer(
+    cols = c(SSP1, SSP5),
+    names_to = "Scenario",
+    values_to = "Temperature"
+  )
+
+ggplot(results_long,
+       aes(x = Scenario, y = Temperature, fill = Scenario)) +
+  geom_boxplot(width = 0.5, alpha = 0.6) +
+  geom_jitter(width = 0.08, size = 2) +
+  scale_fill_manual(
+    values = c(
+      "SSP1" = "steelblue",
+      "SSP5" = "tomato"
+    )
+  ) +
+  labs(
+    title = "Temperature Distribution under SSP1 and SSP5",
+    subtitle = "Japanese Cities, 2081–2100",
+    x = "Climate Scenario",
+    y = "Temperature (°C)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
 ```
 
 
+```{r}
+# Calculate monthly mean maximum temperature across cities
+monthly_ssp1 <- colMeans(
+  temp_ssp1[, -1],
+  na.rm = TRUE
+)
+
+monthly_ssp5 <- colMeans(
+  temp_ssp5[, -1],
+  na.rm = TRUE
+)
+
+# Create a dataframe for monthly comparison
+monthly_temp <- data.frame(
+  Month = factor(month.abb, levels = month.abb),
+  SSP1 = as.numeric(monthly_ssp1),
+  SSP5 = as.numeric(monthly_ssp5)
+)
+
+print(monthly_temp)
+```
+
+```{r}
+# Convert data to long format
+monthly_long <- monthly_temp %>%
+  pivot_longer(
+    cols = c(SSP1, SSP5),
+    names_to = "Scenario",
+    values_to = "Temperature"
+  )
+
+# Plot monthly temperature comparison
+ggplot(monthly_long,
+       aes(x = Month,
+           y = Temperature,
+           color = Scenario,
+           group = Scenario)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 2.5) +
+  scale_color_manual(
+    values = c(
+      "SSP1" = "steelblue",
+      "SSP5" = "tomato"
+    ),
+    labels = c(
+      "SSP1-2.6",
+      "SSP5-8.5"
+    )
+  ) +
+  labs(
+    title = "Monthly Mean Maximum Temperature",
+    subtitle = "Selected Japanese Cities (2081–2100)",
+    x = "Month",
+    y = "Temperature (°C)",
+    color = "Climate Scenario"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom"
+  )
+```
+
+```{r}
+jpoutline <- st_read("data/gadm41_JPN.gpkg", 
+                      layer='ADM_ADM_0')
+```
+
+```{r}
+# Plot Japan's national boundary
+plot(sf::st_geometry(jpoutline))
+```
+
+```{r}
+# Convert sf to SpatVector
+jp_vect <- terra::vect(jpoutline)
+
+# Check coordinate reference systems
+terra::crs(ssp1)
+terra::crs(jp_vect)
+
+# Transform boundary to raster CRS if needed
+jp_vect <- terra::project(jp_vect, terra::crs(ssp1))
+
+# Crop raster data to Japan's bounding box
+jp_ssp1_crop <- terra::crop(ssp1, jp_vect)
+jp_ssp5_crop <- terra::crop(ssp5, jp_vect)
+
+# Plot cropped raster
+plot(jp_ssp1_crop[[1]])
+```
+
+
+```{r}
+# Mask raster cells outside Japan
+jp_ssp1 <- terra::mask(jp_ssp1_crop, jp_vect)
+jp_ssp5 <- terra::mask(jp_ssp5_crop, jp_vect)
+
+# Compare masked rasters
+plot(jp_ssp1[[1]], main = "Japan SSP1 - January")
+plot(jp_ssp5[[1]], main = "Japan SSP5 - January")
+```
+
+
+```{r}
+# Plot January temperature distribution
+hist(
+  jp_ssp1[[1]],
+  col = "steelblue",
+  main = "Japan January Temperature - SSP1",
+  xlab = "Maximum Temperature (°C)"
+)
+
+hist(
+  jp_ssp5[[1]],
+  col = "tomato",
+  main = "Japan January Temperature - SSP5",
+  xlab = "Maximum Temperature (°C)"
+)
+```
+
+```{r}
+# Calculate monthly mean temperature across Japan
+mean_jp_ssp1 <- terra::global(
+  jp_ssp1, "mean", na.rm = TRUE
+)
+
+mean_jp_ssp5 <- terra::global(
+  jp_ssp5, "mean", na.rm = TRUE
+)
+
+# Create monthly comparison dataframe
+jp_monthly <- data.frame(
+  Month = factor(month.abb, levels = month.abb),
+  SSP1 = mean_jp_ssp1$mean,
+  SSP5 = mean_jp_ssp5$mean
+)
+
+print(jp_monthly)
+```
+
+
+```{r}
+# Extract January temperature values
+jan_ssp1 <- as.numeric(
+  terra::values(jp_ssp1[[1]], na.rm = TRUE)
+)
+
+jan_ssp5 <- as.numeric(
+  terra::values(jp_ssp5[[1]], na.rm = TRUE)
+)
+
+# Create a dataframe for ggplot
+jan_data <- data.frame(
+  Temperature = c(jan_ssp1, jan_ssp5),
+  Scenario = c(
+    rep("SSP1", length(jan_ssp1)),
+    rep("SSP5", length(jan_ssp5))
+  )
+)
+
+# Check the data structure
+head(jan_data)
+str(jan_data)
+```
+
+
+```{r}
+# Create histogram for SSP1
+ggplot(
+  data = filter(jan_data, Scenario == "SSP1"),
+  aes(x = Temperature)
+) +
+  geom_histogram(
+    binwidth = 1,
+    fill = "steelblue",
+    color = "white"
+  ) +
+  labs(
+    title = "January Maximum Temperature in Japan",
+    subtitle = "SSP1-2.6, 2081–2100",
+    x = "Temperature (°C)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+# Compare January temperature distributions
+ggplot(jan_data, aes(x = Temperature)) +
+  geom_histogram(
+    binwidth = 1,
+    fill = "steelblue",
+    color = "white"
+  ) +
+  facet_wrap(~ Scenario, ncol = 1) +
+  labs(
+    title = "January Temperature Distribution in Japan",
+    subtitle = "SSP1-2.6 vs SSP5-8.5, 2081–2100",
+    x = "Maximum Temperature (°C)",
+    y = "Number of Raster Cells"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Overlay histograms for both scenarios
+ggplot(
+  jan_data,
+  aes(x = Temperature, fill = Scenario)
+) +
+  geom_histogram(
+    binwidth = 1,
+    alpha = 0.5,
+    position = "identity",
+    color = "white"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "SSP1" = "steelblue",
+      "SSP5" = "tomato"
+    )
+  ) +
+  labs(
+    title = "Comparison of January Maximum Temperature",
+    subtitle = "Japan, 2081–2100",
+    x = "Maximum Temperature (°C)",
+    y = "Number of Raster Cells"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Calculate annual mean maximum temperature
+jp_mean1 <- terra::app(
+  jp_ssp1,
+  fun = mean,
+  na.rm = TRUE
+)
+
+jp_mean5 <- terra::app(
+  jp_ssp5,
+  fun = mean,
+  na.rm = TRUE
+)
+
+# Plot annual mean maximum temperature
+plot(jp_mean1, main = "SSP1-2.6")
+plot(jp_mean5, main = "SSP5-8.5")
+```
+
+```{r}
+# Calculate projected temperature difference
+jp_diff <- jp_mean5 - jp_mean1
+
+# Plot temperature difference
+plot(
+  jp_diff,
+  main = "Projected Temperature Difference (SSP5 - SSP1)"
+)
+```
+
+```{r}
+# Extract temperature difference values
+diff_values <- as.numeric(
+  terra::values(jp_diff, na.rm = TRUE)
+)
+
+# Calculate descriptive statistics
+diff_stats <- data.frame(
+  Mean = mean(diff_values),
+  Median = median(diff_values),
+  SD = sd(diff_values),
+  Min = min(diff_values),
+  Max = max(diff_values),
+  IQR = IQR(diff_values)
+)
+
+print(diff_stats)
+```
+
+```{r}
+# Create dataframe for ggplot
+diff_data <- data.frame(
+  Difference = diff_values
+)
+
+# Plot histogram of projected warming
+ggplot(diff_data, aes(x = Difference)) +
+  geom_histogram(
+    binwidth = 0.2,
+    fill = "tomato",
+    color = "white"
+  ) +
+  geom_vline(
+    xintercept = mean(diff_values),
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+  labs(
+    title = "Projected Temperature Difference Across Japan",
+    subtitle = "SSP5-8.5 minus SSP1-2.6, 2081–2100",
+    x = "Temperature Difference (°C)",
+    y = "Number of Raster Cells"
+  ) +
+  theme_minimal()
+```
 
 
 
