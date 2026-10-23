@@ -1,0 +1,76 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r}
+library(terra)
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(readr)
+```
+
+
+```{r}
+ssp1 <- rast("data/wc2.1_2.5m_tmax_MRI-ESM2-0_ssp126_2081-2100.tif")
+ssp5 <- rast("data/wc2.1_2.5m_tmax_MRI-ESM2-0_ssp585_2081-2100.tif")
+plot(ssp5[[1]])
+```
+
+```{r}
+world_cities <- read_csv("data/World_Cities.csv")
+names(world_cities)
+head(world_cities)
+```
+
+```{r}
+#筛选Japan主要城市
+japan_cities <- world_cities %>%
+  filter(CNTRY_NAME == "Japan")
+```
+
+```{r}
+# Create spatial points using Web Mercator
+japan_sf <- st_as_sf(
+  japan_cities,
+  coords = c("X", "Y"),
+  crs = 3857
+)
+
+japan_sf <- st_transform(japan_sf, 4326)
+
+print(japan_sf)
+```
+
+```{r}
+ggplot() +
+  geom_sf(data = japan_sf, color = "red", size = 2) +
+  theme_minimal() +
+  labs(title = "Major Cities in Japan")
+```
+
+```{r}
+#提取 sf 空间对象中各个城市的坐标
+st_coordinates(japan_sf)
+
+japan_sf$lon <- st_coordinates(japan_sf)[, 1]
+japan_sf$lat <- st_coordinates(japan_sf)[, 2]
+
+#从 japan_sf 空间数据中移除几何信息，只保留城市名称、人口、经度和纬度
+japan_sf %>%
+  st_drop_geometry() %>%
+  select(CITY_NAME, POP, lon, lat)
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
