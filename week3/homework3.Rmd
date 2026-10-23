@@ -620,8 +620,552 @@ ggplot(diff_data, aes(x = Difference)) +
   theme_minimal()
 ```
 
+```{r}
+# Calculate the spatial mean for each month
+monthly_ssp1 <- terra::global(jp_ssp1, "mean", na.rm = TRUE)
+monthly_ssp5 <- terra::global(jp_ssp5, "mean", na.rm = TRUE)
 
+# Create a data frame for monthly temperature comparison
+monthly_temp <- data.frame(
+  Month = factor(month.abb, levels = month.abb),
+  SSP1 = monthly_ssp1$mean,
+  SSP5 = monthly_ssp5$mean
+)
 
+# Calculate the difference between scenarios
+monthly_temp <- monthly_temp %>%
+  mutate(Difference = SSP5 - SSP1)
 
+print(monthly_temp)
+```
 
+```{r monthly-temperature-plot}
+# Convert wide data into long format
+monthly_long <- monthly_temp %>%
+  pivot_longer(
+    cols = c(SSP1, SSP5),
+    names_to = "Scenario",
+    values_to = "Temperature"
+  )
+
+# Plot monthly temperature changes
+ggplot(
+  monthly_long,
+  aes(x = Month, y = Temperature,
+      colour = Scenario, group = Scenario)
+) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 2.5) +
+  scale_colour_manual(
+    values = c("SSP1" = "steelblue",
+               "SSP5" = "tomato")
+  ) +
+  labs(
+    title = "Projected Monthly Temperatures in Japan",
+    subtitle = "SSP1-2.6 vs SSP5-8.5 | 2081–2100",
+    x = "Month",
+    y = "Mean Maximum Temperature (°C)",
+    colour = "Climate Scenario",
+    caption = "Source: WorldClim CMIP6"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+```{r monthly-difference-plot}
+ggplot(monthly_temp,
+       aes(x = Month, y = Difference, group = 1)) +
+  geom_line(colour = "firebrick", linewidth = 1.2) +
+  geom_point(colour = "firebrick", size = 2.5) +
+  labs(
+    title = "Monthly Temperature Difference in Japan",
+    subtitle = "SSP5-8.5 minus SSP1-2.6 | 2081–2100",
+    x = "Month",
+    y = "Temperature Difference (°C)"
+  ) +
+  theme_minimal(base_size = 13)
+```
+## Temporal Analysis of Projected Temperatures
+
+The projected monthly maximum temperatures in Japan exhibit a clear seasonal pattern under both SSP1-2.6 and SSP5-8.5 during 2081–2100. Temperatures increase from winter to summer, reaching their highest levels in August before declining towards December.
+
+SSP5-8.5 consistently produces higher projected temperatures than SSP1-2.6 throughout the year. However, the magnitude of the difference varies by month.
+
+The largest difference occurs in October (approximately 3.27°C), while the smallest occurs in May (approximately 2.29°C). This indicates that the difference between climate scenarios is seasonally variable rather than constant.
+
+Interestingly, the largest scenario difference does not coincide with the warmest month. These findings suggest that the seasonal pattern of projected temperature differences warrants further spatial investigation.
+
+```{r}
+# Calculate monthly spatial differences
+jp_monthly_diff <- jp_ssp5 - jp_ssp1
+
+# Rename layers using month abbreviations
+names(jp_monthly_diff) <- month.abb
+
+# Display all monthly difference maps
+plot(
+  jp_monthly_diff,
+  main = paste("Temperature Difference -", month.abb)
+)
+```
+
+```{r using the same colour scale}
+# Find the global range across all 12 months
+monthly_range <- terra::global(
+  jp_monthly_diff,
+  "range",
+  na.rm = TRUE
+)
+
+# Determine common colour limits
+common_min <- min(monthly_range[, 1])
+common_max <- max(monthly_range[, 2])
+
+# Plot maps using the same colour scale
+plot(
+  jp_monthly_diff,
+  range = c(common_min, common_max),
+  col = hcl.colors(100, "YlOrRd"),
+  main = month.abb
+)
+```
+
+## How similar are the spatial patterns of temperature differences across different months?
+
+```{r}
+# Convert monthly raster differences into a data frame
+diff_values <- terra::values(
+  jp_monthly_diff,
+  na.rm = FALSE
+)
+
+# Calculate Pearson correlations between all months
+cor_matrix <- cor(
+  diff_values,
+  use = "pairwise.complete.obs",
+  method = "pearson"
+)
+
+# Display the correlation matrix
+round(cor_matrix, 3)
+```
+
+```{r}
+# Convert correlation matrix to long format
+cor_df <- as.data.frame(cor_matrix)
+
+cor_df$Month1 <- rownames(cor_df)
+
+cor_long <- cor_df %>%
+  pivot_longer(
+    cols = -Month1,
+    names_to = "Month2",
+    values_to = "Correlation"
+  )
+
+# Set month order
+cor_long$Month1 <- factor(
+  cor_long$Month1,
+  levels = month.abb
+)
+
+cor_long$Month2 <- factor(
+  cor_long$Month2,
+  levels = month.abb
+)
+
+# Plot correlation heatmap
+ggplot(
+  cor_long,
+  aes(x = Month1, y = Month2, fill = Correlation)
+) +
+  geom_tile(colour = "white") +
+  geom_text(
+    aes(label = sprintf("%.2f", Correlation)),
+    size = 3
+  ) +
+  scale_fill_gradient2(
+    low = "steelblue",
+    mid = "white",
+    high = "firebrick",
+    midpoint = 0,
+    limits = c(-1, 1)
+  ) +
+  coord_equal() +
+  labs(
+    title = "Spatial Correlation of Monthly Temperature Differences",
+    subtitle = "SSP5-8.5 minus SSP1-2.6 | Japan, 2081–2100",
+    x = "Month",
+    y = "Month",
+    fill = "Pearson r"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+## Spatial Correlation of Monthly Temperature Differences
+
+Pearson correlation coefficients were calculated between monthly raster layers to assess the similarity of spatial patterns in projected temperature differences between SSP5-8.5 and SSP1-2.6.
+
+All pairwise monthly correlations were positive, ranging from approximately 0.26 to 0.98. The strongest correlation was observed between November and December (r = 0.98), indicating highly similar spatial patterns. Strong correlations were also found between February and December (r = 0.97) and between June and August (r = 0.93).
+
+In contrast, April and July showed the weakest correlation (r = 0.26), suggesting that the geographical distribution of temperature differences varies substantially between these months.
+
+Overall, the results indicate that the spatial patterns of projected temperature differences are partly persistent but also exhibit seasonal variation. Further spatial analysis is needed to identify the geographical structure of these differences and assess spatial clustering.
+
+```{r Zonal Statistics}
+# Check available layers in the GeoPackage
+st_layers("data/gadm41_JPN.gpkg")
+
+# Read Japan's first-level administrative divisions
+jp_pref <- st_read(
+  "data/gadm41_JPN.gpkg",
+  layer = "ADM_ADM_1"
+)
+
+# Check the number of prefectures
+nrow(jp_pref)
+
+# Inspect attribute names
+names(jp_pref)
+
+# Plot prefecture boundaries
+plot(st_geometry(jp_pref))
+```
+
+```{r}
+# Convert prefecture polygons from sf to terra vector
+jp_pref_vect <- terra::vect(jp_pref)
+
+# Calculate area-weighted mean temperature differences
+# for each prefecture and month
+pref_monthly <- terra::extract(
+  jp_monthly_diff,
+  jp_pref_vect,
+  fun = mean,
+  na.rm = TRUE,
+  exact = TRUE
+)
+
+# Add prefecture names
+pref_monthly$Prefecture <- jp_pref$NAME_1
+
+# Inspect the results
+head(pref_monthly)
+```
+
+```{r Geographical Gradients in Projected Temperature Differences}
+# Extract raster values and coordinates for all valid cells
+pixel_data <- as.data.frame(
+  jp_monthly_diff,
+  xy = TRUE,
+  na.rm = TRUE
+)
+
+# Inspect the first six rows
+head(pixel_data)
+
+# Check the number of valid raster cells
+nrow(pixel_data)
+```
+
+```{r}
+# January: latitude and temperature difference
+cor(pixel_data$y, pixel_data$Jan)
+
+# January: longitude and temperature difference
+cor(pixel_data$x, pixel_data$Jan)
+
+# July: latitude and temperature difference
+cor(pixel_data$y, pixel_data$Jul)
+
+# July: longitude and temperature difference
+cor(pixel_data$x, pixel_data$Jul)
+```
+
+```{r}
+# Plot latitude against January temperature difference
+ggplot(pixel_data, aes(x = y, y = Jan)) +
+  geom_point(
+    colour = "steelblue",
+    alpha = 0.08,
+    size = 0.5
+  ) +
+  geom_smooth(
+    method = "lm",
+    se = FALSE,
+    colour = "firebrick"
+  ) +
+  labs(
+    title = "Latitude vs Temperature Difference",
+    subtitle = "Japan, January | SSP5-8.5 minus SSP1-2.6",
+    x = "Latitude (°N)",
+    y = "Temperature Difference (°C)"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+```{r}
+# Calculate correlations for all 12 months
+monthly_cor <- data.frame(
+  Month = month.abb,
+  Latitude = sapply(
+    month.abb,
+    function(m) cor(pixel_data$y, pixel_data[[m]])
+  ),
+  Longitude = sapply(
+    month.abb,
+    function(m) cor(pixel_data$x, pixel_data[[m]])
+  )
+)
+
+print(monthly_cor)
+```
+
+```{r}
+library(tidyr)
+
+# Reshape correlation results
+monthly_cor_long <- monthly_cor %>%
+  pivot_longer(
+    cols = c(Latitude, Longitude),
+    names_to = "Coordinate",
+    values_to = "Correlation"
+  ) %>%
+  mutate(Month = factor(Month, levels = month.abb))
+
+# Plot monthly correlation coefficients
+ggplot(
+  monthly_cor_long,
+  aes(x = Month, y = Correlation,
+      colour = Coordinate, group = Coordinate)
+) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(linewidth = 1.1) +
+  geom_point(size = 2.5) +
+  scale_y_continuous(limits = c(-1, 1)) +
+  labs(
+    title = "Monthly Correlation Between Location and Temperature Difference",
+    subtitle = "Pixel-level analysis | Japan, 2081–2100",
+    x = "Month",
+    y = "Pearson Correlation",
+    colour = "Coordinate"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+```{r PCA}
+# Convert raster-cell coordinates into spatial points
+pixel_sf <- st_as_sf(
+  pixel_data,
+  coords = c("x", "y"),
+  crs = 4326,
+  remove = FALSE
+)
+
+# Use an Azimuthal Equidistant projection centred on Japan
+japan_crs <- paste(
+  "+proj=aeqd",
+  "+lat_0=36",
+  "+lon_0=138",
+  "+datum=WGS84",
+  "+units=m",
+  "+no_defs"
+)
+
+pixel_projected <- st_transform(pixel_sf, japan_crs)
+
+# Extract projected coordinates in kilometres
+coords_km <- st_coordinates(pixel_projected) / 1000
+
+pixel_data$X_km <- coords_km[, 1]
+pixel_data$Y_km <- coords_km[, 2]
+
+head(pixel_data[, c("x", "y", "X_km", "Y_km")])
+```
+
+```{r}
+# Perform PCA on projected spatial coordinates
+pca_axis <- prcomp(
+  pixel_data[, c("X_km", "Y_km")],
+  center = TRUE,
+  scale. = FALSE
+)
+
+# Examine explained variance
+summary(pca_axis)
+
+# Examine the direction of the main axis
+pca_axis$rotation
+```
+
+```{r}
+# Extract PCA coordinates
+axis_scores <- predict(pca_axis)
+
+pixel_data$PC1 <- axis_scores[, 1]
+pixel_data$PC2 <- axis_scores[, 2]
+
+# Orient PC1 so that larger values point northeast
+if (cor(pixel_data$PC1, pixel_data$Y_km) < 0) {
+  pixel_data$PC1 <- -pixel_data$PC1
+  pixel_data$PC2 <- -pixel_data$PC2
+}
+
+# Set southwest end of the main axis to zero
+pixel_data$Axis_km <- pixel_data$PC1 - min(pixel_data$PC1)
+
+# Inspect the result
+head(pixel_data[, c("X_km", "Y_km", "Axis_km", "Jan")])
+```
+
+```{r}
+# Plot raster-cell positions coloured by main-axis distance
+ggplot(pixel_data, aes(x = X_km, y = Y_km)) +
+  geom_point(
+    aes(colour = Axis_km),
+    size = 0.4,
+    alpha = 0.6
+  ) +
+  coord_equal() +
+  scale_colour_viridis_c(
+    option = "plasma",
+    name = "Axis distance (km)"
+  ) +
+  labs(
+    title = "Japan's Main Geographical Axis",
+    subtitle = "PCA-derived axis based on raster-cell locations",
+    x = "Projected Easting (km)",
+    y = "Projected Northing (km)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Calculate temperature difference gradients along Japan's main axis
+axis_gradient <- data.frame(
+  Month = month.abb,
+  Gradient = sapply(
+    month.abb,
+    function(m) {
+
+      # Fit linear regression along the main axis
+      model <- lm(
+        pixel_data[[m]] ~ pixel_data$Axis_km
+      )
+
+      # Convert slope to °C per 100 km
+      unname(coef(model)[2]) * 100
+    }
+  )
+)
+
+# Set chronological month order
+axis_gradient$Month <- factor(
+  axis_gradient$Month,
+  levels = month.abb
+)
+
+print(axis_gradient)
+```
+
+```{r}
+ggplot(
+  axis_gradient,
+  aes(x = Month, y = Gradient, group = 1)
+) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed",
+    colour = "grey50"
+  ) +
+  geom_line(
+    colour = "steelblue",
+    linewidth = 1.1
+  ) +
+  geom_point(
+    colour = "firebrick",
+    size = 2.8
+  ) +
+  labs(
+    title = "Monthly Temperature Difference Gradient Along Japan's Main Axis",
+    subtitle = "SSP5-8.5 minus SSP1-2.6 | 2081–2100",
+    x = "Month",
+    y = "Main-axis Gradient (°C / 100 km)"
+  ) +
+  theme_minimal(base_size = 13)
+```
+
+```{r}
+# Calculate R-squared for each monthly main-axis regression
+axis_r2 <- sapply(
+  month.abb,
+  function(m) {
+    model <- lm(
+      pixel_data[[m]] ~ pixel_data$Axis_km
+    )
+
+    summary(model)$r.squared
+  }
+)
+
+# Combine gradient and model explanatory power
+axis_gradient$R_squared <- unname(axis_r2)
+
+print(axis_gradient)
+```
+
+```{r}
+# Plot monthly R-squared values
+ggplot(axis_gradient,
+       aes(x = Month, y = R_squared, group = 1)) +
+
+  # Add a line connecting monthly values
+  geom_line(
+    colour = "steelblue",
+    linewidth = 1.2
+  ) +
+
+  # Add points for each month
+  geom_point(
+    colour = "firebrick",
+    size = 3
+  ) +
+
+  # Display R-squared values above points
+  geom_text(
+    aes(label = sprintf("%.2f", R_squared)),
+    vjust = -0.8,
+    size = 3.5
+  ) +
+
+  # Set y-axis limits
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, 0.2)
+  ) +
+
+  labs(
+    title = "Seasonal Variation in Main-Axis Model R²",
+    subtitle = "Japan | SSP5-8.5 minus SSP1-2.6 | 2081–2100",
+    x = "Month",
+    y = expression(R^2)
+  ) +
+
+  theme_minimal(base_size = 13)
+```
+
+## Spatial Gradient Analysis
+
+To quantify the spatial patterns observed in the temperature difference maps, a spatial gradient analysis was conducted using raster-cell data across Japan. Principal Component Analysis (PCA) was applied to projected geographical coordinates to identify the country's main southwest-to-northeast axis. Linear regression was then used to estimate changes in projected temperature differences between SSP5-8.5 and SSP1-2.6 along this axis.
+
+The results revealed positive spatial gradients in all twelve months, indicating that projected temperature differences generally increased from southwestern to northeastern Japan.
+
+The strength of this gradient varied seasonally. December exhibited the strongest gradient (0.067°C per 100 km), followed by February (0.058°C per 100 km) and November (0.049°C per 100 km). In contrast, April showed the weakest gradient (0.011°C per 100 km).
+
+The explanatory power of the linear models also varied substantially. The highest R² values were observed in December (0.928) and November (0.915), indicating that the main-axis trend accounted for more than 91% of the spatial variation in projected temperature differences during these months. April had the lowest R² (0.220), suggesting a more complex spatial pattern that could not be adequately represented by a simple linear gradient.
+
+Overall, the analysis demonstrates a persistent but seasonally variable southwest-to-northeast gradient in projected temperature differences across Japan. The results provide quantitative support for the spatial patterns identified through visual interpretation of the raster maps.
 
