@@ -2,28 +2,170 @@
 title: "homework4"
 output: html_document
 date: "2026-10-29"
+editor_options: 
+  chunk_output_type: inline
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r}
+# Load packages
+library(sf)
+library(dplyr)
+library(readr)
+library(countrycode)
+library(ggplot2)
+```
+```{r}
+# Read gender inequality dataset
+gii2010 <- read_csv(
+  "data/gender_inequality2010.csv",
+  show_col_types = FALSE
+)
+
+gii2019 <- read_csv(
+  "data/gender_inequality2019.csv",
+  show_col_types = FALSE
+)
+
+# Read world spatial boundaries
+world <- st_read(
+  "data/World_Countries_(Generalized)_2173680399808997149.geojson"
+)
+
+# Inspect the datasets
+names(gii2010)
+names(world)
+
+# Check dimensions
+dim(gii2010)
+dim(world)
+
+# Inspect spatial reference system
+st_crs(world)
+```
+```{r}
+# Select and rename 2010 GII values
+gii_2010 <- gii2010 %>%
+  select(
+    countryIsoCode,
+    GII_2010 = actualValue
+  )
+
+# Select and rename 2019 GII values
+gii_2019 <- gii2019 %>%
+  select(
+    countryIsoCode,
+    GII_2019 = actualValue
+  )
+
+str(gii_2010)
+str(gii_2019)
+```
+```{r}
+# Join GII datasets by ISO country code
+gii_change <- gii_2010 %>%
+  full_join(
+    gii_2019,
+    by = "countryIsoCode"
+  ) %>%
+  mutate(
+    GII_change = GII_2019 - GII_2010
+  )
+
+# Inspect the result
+head(gii_change)
+
+# Check the number of countries
+nrow(gii_change)
+
+# Summary statistics
+summary(gii_change$GII_change)
+```
+```{r}
+# Convert ISO2 country codes to ISO3
+world <- world %>%
+  mutate(
+    ISO3 = countrycode(
+      ISO,
+      origin = "iso2c",
+      destination = "iso3c"
+    )
+  )
+
+# Check converted codes
+world %>%
+  st_drop_geometry() %>%
+  select(COUNTRY, ISO, ISO3) %>%
+  head(10)
+```
+```{r}
+# Find countries with missing ISO3 codes
+world %>%
+  st_drop_geometry() %>%
+  filter(is.na(ISO3)) %>%
+  select(COUNTRY, ISO)
+```
+```{r}
+# Join GII data to spatial boundaries
+world_gii <- world %>%
+  left_join(
+    gii_change,
+    by = c("ISO3" = "countryIsoCode")
+  )
+
+# Inspect joined data
+head(world_gii)
+
+# Check number of valid mapped features
+sum(!is.na(world_gii$GII_change))
 ```
 
-## R Markdown
+```{r}
+# Calculate symmetric colour scale limits
+max_change <- max(
+  abs(world_gii$GII_change),
+  na.rm = TRUE
+)
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+# Create global GII change map
+gii_map <- ggplot(world_gii) +
+  geom_sf(
+    aes(fill = GII_change),
+    colour = "grey60",
+    linewidth = 0.1
+  ) +
+  scale_fill_gradient2(
+    low = "#2166AC",
+    mid = "white",
+    high = "#B2182B",
+    midpoint = 0,
+    limits = c(-max_change, max_change),
+    na.value = "grey90",
+    name = "GII Change"
+  ) +
+  coord_sf(
+    crs = "+proj=robin",
+    default_crs = sf::st_crs(4326)
+  ) +
+  labs(
+    title = "Global Gender Inequality Change (2010–2019)",
+    subtitle = "Negative values indicate improvement; positive values indicate worsening",
+    caption = "Source: UNDP Human Development Reports"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title = element_blank(),
+    panel.grid.major = element_line(
+      colour = "grey90",
+      linewidth = 0.2
+    ),
+    plot.title = element_text(
+      face = "bold",
+      size = 16
+    )
+  )
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
+print(gii_map)
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
 
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
